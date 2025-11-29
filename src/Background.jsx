@@ -1,75 +1,57 @@
 import { useEffect, useRef, useState } from "react";
+
+import Point from "./Point";
+import Vector from "./Vector";
 import Delaunator from "delaunator";
+
 import "./Background.css";
 
-class Vector {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-    }
-    add(vector) {
-        return new Vector(this.x + vector.x, this.y + vector.y);
-    }
-    substract(vector) {
-        return new Vector(this.x - vector.x, this.y - vector.y);
-    }
-    multiply(scalar) {
-        return new Vector(this.x * scalar, this.y * scalar);
-    }
-    divide(scalar) {
-        return new Vector(this.x / scalar, this.y / scalar);
-    }
-    length() {
-        return Math.sqrt(Math.pow(this.x, 2) + Math.pow(this.y, 2));
-    }
-}
-
-class Point {
-    constructor(position, velocity) {
-        this.position = position;
-        this.velocity = velocity;
-        this.opacity = 0;
-    }
-    getX() {
-        return this.position.x;
-    }
-    getY() {
-        return this.position.y;
-    }
+function AABB(position, box_size) {
+    return (
+        (position.x >= -100) &
+        (position.x <= box_size.x + 100) &
+        ((position.y >= -100) & (position.y <= box_size.y + 100))
+    );
 }
 
 function Background() {
-    let lastTime = 0;
-    const FPS = useRef(60);
+    // properties
+    const [FPS, setFPS] = useState(60.0);
+    const FPSRef = useRef(FPS);
 
+    const [color, setColor] = useState("#ffffff");
+    const colorRef = useRef(color);
+
+    const [bgColor, setBgColor] = useState("#000000");
+
+    let lastTime = 0;
+
+    // canvas
     const canvasRef = useRef(null);
+
+    // animation parameters
     const points = useRef([]);
     const edgesSet = useRef(new Set());
 
     const mousePosition = useRef(new Vector(-1000, -1000));
-    const windowSize = useRef(
-        new Vector(window.innerWidth, window.innerHeight)
-    );
+    const windowSize = useRef(new Vector(window.innerWidth, window.innerHeight));
+
+    // misc
+    let frameCount = 0;
     const animationId = useRef(null);
 
     // animation properties
-    let allPointsCount = Math.min(
-        256,
-        (windowSize.current.x * windowSize.current.y) / 5e3
-    );
-    const pointColorFactorRadius =
-        Math.min(windowSize.current.x, windowSize.current.y) / 10;
-    const mouseRadius =
-        Math.min(windowSize.current.x, windowSize.current.y) / 10;
+    let allPointsCount = Math.min(256, (windowSize.current.x * windowSize.current.y) / 5e3);
+    const opacityFactor = Math.min(windowSize.current.x, windowSize.current.y) / 10;
+    const mouseRadius = Math.min(windowSize.current.x, windowSize.current.y) / 10;
 
-    const [color, setColor] = useState("#ffffff");
-    const [bgColor, setBgColor] = useState("#000000");
-
-    const colorRef = useRef(color);
-
+    // properties update
     useEffect(() => {
         colorRef.current = color;
     }, [color]);
+    useEffect(() => {
+        FPSRef.current = FPS;
+    }, [FPS]);
 
     function handleMouseMove(event) {
         const rect = event.currentTarget.getBoundingClientRect();
@@ -77,32 +59,31 @@ function Background() {
         mousePosition.current.y = event.clientY - rect.top;
     }
 
-    function createPoint() {
+    function createPoint(point = null) {
+        if (point == null) {
+            point = new Point();
+            points.current.push(point);
+        }
         const position = new Vector(
             Math.random() * (windowSize.current.x + 200) - 100,
             Math.random() * (windowSize.current.y + 200) - 100
         );
         const velocity = new Vector(
-            (Math.random() * windowSize.current.x - windowSize.current.x / 2) /
-                500,
-            (Math.random() * windowSize.current.y - windowSize.current.y / 2) /
-                500
+            (Math.random() * windowSize.current.x - windowSize.current.x / 2) / 500,
+            (Math.random() * windowSize.current.y - windowSize.current.y / 2) / 500
         );
-        points.current.push(new Point(position, velocity));
+        point.setPosition(position);
+        point.setVelocity(velocity);
     }
+
     function drawLine(context, p1, p2, color) {
         context.lineWidth = 2;
 
-        const start_x = p1.position.x;
-        const start_y = p1.position.y;
-        const end_x = p2.position.x;
-        const end_y = p2.position.y;
-
         const linearGradient = context.createLinearGradient(
-            start_x,
-            start_y,
-            end_x,
-            end_y
+            p1.position.x,
+            p1.position.y,
+            p2.position.x,
+            p2.position.y
         );
         const alphaP1 = Math.round(Math.min(1, p1.opacity) * 255).toString(16);
         const alphaP2 = Math.round(Math.min(1, p2.opacity) * 255).toString(16);
@@ -115,17 +96,14 @@ function Background() {
 
         context.strokeStyle = linearGradient;
         context.beginPath();
-        context.moveTo(start_x, start_y);
-        context.lineTo(end_x, end_y);
+        context.moveTo(p1.position.x, p1.position.y);
+        context.lineTo(p2.position.x, p2.position.y);
         context.stroke();
     }
 
     function render(color) {
-        // canvas init
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const context = canvas.getContext("2d");
+        // context init
+        const context = canvasRef.current.getContext("2d");
         if (!context) return;
 
         // clear buffer
@@ -133,22 +111,12 @@ function Background() {
 
         // draw points
         points.current.forEach((point) => {
-            const alphaHex = Math.round(
-                Math.min(1, point.opacity) * 255
-            ).toString(16);
-            const paddedAlphaHex =
-                alphaHex.length === 1 ? "0" + alphaHex : alphaHex;
+            const alphaHex = Math.round(Math.min(1, point.opacity) * 255).toString(16);
+            const paddedAlphaHex = alphaHex.length === 1 ? "0" + alphaHex : alphaHex;
             context.fillStyle = color + paddedAlphaHex;
 
             context.beginPath();
-            context.arc(
-                point.position.x,
-                point.position.y,
-                2,
-                0,
-                Math.PI * 2,
-                true
-            );
+            context.arc(point.position.x, point.position.y, 2, 0, Math.PI * 2, false);
             context.fill();
         });
 
@@ -163,10 +131,10 @@ function Background() {
         // framerate
         animationId.current = requestAnimationFrame((time) => update(time));
         const deltaTime = time - lastTime;
-        if (deltaTime < 1000 / FPS.current) {
-            return;
-        }
+        if (deltaTime < 1000 / FPSRef.current) return;
         lastTime = time;
+
+        frameCount += 1;
 
         // create new points
         while (allPointsCount > points.current.length) {
@@ -174,27 +142,12 @@ function Background() {
         }
 
         // delete points out box
+        let pointsDeleted = false;
         points.current.forEach((point) => {
-            if (
-                !(
-                    (point.position.x >= -100) &
-                    (point.position.x <= windowSize.current.x + 100) &
-                    ((point.position.y >= -100) &
-                        (point.position.y <= windowSize.current.y + 100))
-                )
-            ) {
-                point.position = new Vector(
-                    Math.random() * (windowSize.current.x + 200) - 100,
-                    Math.random() * (windowSize.current.y + 200) - 100
-                );
-                point.velocity = new Vector(
-                    (Math.random() * windowSize.current.x -
-                        windowSize.current.x / 2) /
-                        500,
-                    (Math.random() * windowSize.current.y -
-                        windowSize.current.y / 2) /
-                        500
-                );
+            if (!AABB(point.position, windowSize.current)) {
+                pointsDeleted = true;
+
+                createPoint(point);
             }
         });
         // update points properties
@@ -211,12 +164,12 @@ function Background() {
                 point.velocity.y += normY;
             }
             // update points position
-            point.position.x += point.velocity.x;
-            point.position.y += point.velocity.y;
+            point.position.x += point.velocity.x * 60 / FPSRef.current;
+            point.position.y += point.velocity.y * 60 / FPSRef.current;
         });
 
         // update point opacity
-        const radiusSq = pointColorFactorRadius * pointColorFactorRadius;
+        const radiusSq = opacityFactor * opacityFactor;
 
         points.current.forEach((point) => {
             let pointsCount = 0;
@@ -226,35 +179,35 @@ function Background() {
                 if (dx * dx + dy * dy < radiusSq) pointsCount++;
             });
             point.opacity =
-                Math.pow(pointsCount, 2) /
-                Math.pow(2, Math.ceil(Math.log2(allPointsCount)) - 2);
+                Math.pow(pointsCount, 2) / Math.pow(2, Math.ceil(Math.log2(allPointsCount)) - 2);
         });
 
-        // generate triangles
-        const delaunay = Delaunator.from(
-            points.current,
-            (point) => point.position.x,
-            (point) => point.position.y
-        );
-        const triangles = delaunay.triangles;
+        if (frameCount % 8 == 0 || pointsDeleted) {
+            // generate triangles
+            const delaunay = Delaunator.from(
+                points.current,
+                (point) => point.position.x,
+                (point) => point.position.y
+            );
+            const triangles = delaunay.triangles;
 
-        // get lines from triangles
-        edgesSet.current.clear();
+            // get lines from triangles
+            edgesSet.current.clear();
 
-        for (let i = 0; i < triangles.length; i += 3) {
-            const tri = [triangles[i], triangles[i + 1], triangles[i + 2]];
+            for (let i = 0; i < triangles.length; i += 3) {
+                const tri = [triangles[i], triangles[i + 1], triangles[i + 2]];
 
-            const edgePairs = [
-                [tri[0], tri[1]],
-                [tri[1], tri[2]],
-                [tri[0], tri[2]],
-            ];
+                const edgePairs = [
+                    [tri[0], tri[1]],
+                    [tri[1], tri[2]],
+                    [tri[0], tri[2]],
+                ];
 
-            edgePairs.forEach(([a, b]) => {
-                // Упорядочиваем индексы, чтобы (a,b) и (b,a) считались одинаковыми
-                const edge = a < b ? `${a},${b}` : `${b},${a}`;
-                edgesSet.current.add(edge);
-            });
+                edgePairs.forEach(([a, b]) => {
+                    const edge = a < b ? `${a},${b}` : `${b},${a}`;
+                    edgesSet.current.add(edge);
+                });
+            }
         }
         render(colorRef.current);
     }
@@ -262,10 +215,9 @@ function Background() {
     useEffect(() => {
         const handleResize = () => {
             const newSize = new Vector(window.innerWidth, window.innerHeight);
-            if (newSize.x === windowSize.x && newSize.y === windowSize.y)
-                return;
+            if (newSize.x === windowSize.x && newSize.y === windowSize.y) return;
 
-            // масштабируем точки
+            // scale points
             const aspectX = newSize.x / windowSize.x;
             const aspectY = newSize.y / windowSize.y;
             points.current.forEach((point) => {
@@ -280,8 +232,7 @@ function Background() {
             ctx.canvas.width = newSize.x;
             ctx.canvas.height = newSize.y;
 
-            allPointsCount =
-                (windowSize.current.x * windowSize.current.y) / 5e3;
+            allPointsCount = Math.min(256, (windowSize.current.x * windowSize.current.y) / 5e3);
 
             windowSize.current = newSize;
             requestAnimationFrame((time) => update(time));
@@ -291,22 +242,21 @@ function Background() {
     }, []);
 
     useEffect(() => {
-        // init();
         requestAnimationFrame((time) => update(time));
     }, []);
+
+    function componentToHex(c) {
+        var hex = c.toString(16);
+        return hex.length == 1 ? "0" + hex : hex;
+    }
+
+    function rgbToHex(rgb) {
+        return "#" + rgb.map(componentToHex).join("");
+    }
 
     useEffect(() => {
         window.wallpaperPropertyListener = {
             applyUserProperties: function (properties) {
-                function componentToHex(c) {
-                    var hex = c.toString(16);
-                    return hex.length == 1 ? "0" + hex : hex;
-                }
-
-                function rgbToHex(rgb) {
-                    return "#" + rgb.map(componentToHex).join("");
-                }
-
                 if (properties.color) {
                     let customColor = properties.color.value.split(" ");
                     customColor = customColor.map(function (c) {
@@ -316,8 +266,7 @@ function Background() {
                     setColor(rgbToHex(customColor));
                 }
                 if (properties.background_color) {
-                    let customColor =
-                        properties.background_color.value.split(" ");
+                    let customColor = properties.background_color.value.split(" ");
                     customColor = customColor.map(function (c) {
                         return Math.ceil(c * 255);
                     });
@@ -325,7 +274,7 @@ function Background() {
                     setBgColor(rgbToHex(customColor));
                 }
                 if (properties.fps) {
-                    FPS.current = properties.fps;
+                    setFPS(properties.fps);
                 }
             },
         };
