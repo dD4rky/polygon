@@ -213,35 +213,6 @@ function Background() {
     }
 
     useEffect(() => {
-        const handleResize = () => {
-            const newSize = new Vector(window.innerWidth, window.innerHeight);
-            if (newSize.x === windowSize.x && newSize.y === windowSize.y) return;
-
-            // scale points
-            const aspectX = newSize.x / windowSize.x;
-            const aspectY = newSize.y / windowSize.y;
-            points.current.forEach((point) => {
-                point.position.x *= aspectX;
-                point.position.y *= aspectY;
-                point.velocity.x *= aspectX;
-                point.velocity.y *= aspectY;
-            });
-
-            // resize canvas
-            const ctx = canvasRef.current.getContext("2d");
-            ctx.canvas.width = newSize.x;
-            ctx.canvas.height = newSize.y;
-
-            allPointsCount = Math.min(256, (windowSize.current.x * windowSize.current.y) / 5e3);
-
-            windowSize.current = newSize;
-            requestAnimationFrame((time) => update(time));
-        };
-        window.addEventListener("resize", handleResize);
-        return () => window.removeEventListener("resize", handleResize);
-    }, []);
-
-    useEffect(() => {
         requestAnimationFrame((time) => update(time));
     }, []);
 
